@@ -91,24 +91,9 @@ pipeline {
                                 
                                 // Apply Terraform changes with auto-approve
                                 sh '''
-                                    # First apply for base infrastructure
-                                    terraform apply -auto-approve -target=module.vpc -target=module.eks || true
-                                    
-                                    # Configure kubectl
-                                    aws eks update-kubeconfig --name ${K8S_CLUSTER_NAME} --region ${AWS_DEFAULT_REGION}
-                                    
-                                    # Second apply for kubernetes resources
-                                    terraform apply -auto-approve
-                                    
-                                    # Verify deployments (with longer timeouts)
-                                    kubectl rollout status deployment/prometheus-operator -n monitoring --timeout=300s || true
-                                    kubectl rollout status deployment/grafana -n monitoring --timeout=300s || true
-                                    kubectl rollout status deployment/flask-app --timeout=300s || true
+                                    kubectl apply -f k8s-deployment.yaml
+                                    kubectl set image deployment/${K8S_APP_NAME} ${K8S_APP_NAME}=${ECR_REPO}/${ECR_REPO_NAME}:${BUILD_NUMBER}
                                 '''
-                            } catch (Exception e) {
-                                echo "Warning: Some errors occurred but continuing: ${e.getMessage()}"
-                                // Don't fail the build
-                                // error "Infrastructure deployment failed"
                             }
                         }
                     }
