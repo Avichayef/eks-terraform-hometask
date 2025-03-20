@@ -36,16 +36,14 @@ pipeline {
             steps {
                 dir("${APP_PATH}") {
                     script {
-                        // Load variables from config.env
                         def configEnv = readFile('config.env').readLines().findAll { line ->
                             line.trim() && !line.startsWith('#')
                         }.collect { line ->
-                            def parts = line.split('=')
+                            def parts = line.split('=', 2)
                             return "${parts[0]}=${parts[1]}"
-                        }.join('\n')
+                        }
                         
-                        // Load the environment variables
-                        withEnv(configEnv.split('\n')) {
+                        withEnv(configEnv) {
                             sh 'docker build -t ${ECR_REPO_NAME}:${BUILD_NUMBER} .'
                         }
                     }
@@ -58,16 +56,14 @@ pipeline {
                 withAWS(credentials: 'aws-credentials', region: env.AWS_DEFAULT_REGION) {
                     dir("${APP_PATH}") {
                         script {
-                            // Load variables from config.env
                             def configEnv = readFile('config.env').readLines().findAll { line ->
                                 line.trim() && !line.startsWith('#')
                             }.collect { line ->
-                                def parts = line.split('=')
+                                def parts = line.split('=', 2)
                                 return "${parts[0]}=${parts[1]}"
-                            }.join('\n')
+                            }
                             
-                            // Load the environment variables and execute commands
-                            withEnv(configEnv.split('\n')) {
+                            withEnv(configEnv) {
                                 sh '''
                                     # Create ECR repository if it doesn't exist
                                     aws ecr describe-repositories --repository-names ${ECR_REPO_NAME} || \
@@ -92,16 +88,14 @@ pipeline {
                 withCredentials([file(credentialsId: 'eks-kubeconfig', variable: 'KUBECONFIG')]) {
                     dir("${APP_PATH}") {
                         script {
-                            // Load variables from config.env
                             def configEnv = readFile('config.env').readLines().findAll { line ->
                                 line.trim() && !line.startsWith('#')
                             }.collect { line ->
-                                def parts = line.split('=')
+                                def parts = line.split('=', 2)
                                 return "${parts[0]}=${parts[1]}"
-                            }.join('\n')
+                            }
                             
-                            // Load the environment variables and execute commands
-                            withEnv(configEnv.split('\n')) {
+                            withEnv(configEnv) {
                                 sh '''
                                     kubectl apply -f k8s/
                                     kubectl set image deployment/${K8S_APP_NAME} ${K8S_APP_NAME}=${ECR_REPO}/${ECR_REPO_NAME}:${BUILD_NUMBER}
