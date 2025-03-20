@@ -1,3 +1,15 @@
+variable "grafana_storage_size" {
+  description = "Storage size for Grafana"
+  type        = string
+  default     = "5Gi"
+}
+
+variable "grafana_admin_password" {
+  description = "Password for Grafana admin user"
+  type        = string
+  sensitive   = true
+}
+
 variable "enable_cloudwatch" {
   description = "Enable CloudWatch monitoring"
   type        = bool
@@ -7,11 +19,6 @@ variable "enable_cloudwatch" {
 variable "cluster_name" {
   description = "Name of the EKS cluster"
   type        = string
-
-  validation {
-    condition     = length(var.cluster_name) > 0
-    error_message = "Cluster name cannot be empty."
-  }
 }
 
 variable "environment" {
@@ -61,20 +68,6 @@ variable "prometheus_memory_limit" {
   default     = "1Gi"
 }
 
-# Add all other variables for Prometheus, Grafana, and CloudWatch configuration
-
-variable "grafana_admin_password" {
-  description = "Admin password for Grafana"
-  type        = string
-  sensitive   = true
-}
-
-variable "grafana_storage_size" {
-  description = "Storage size for Grafana"
-  type        = string
-  default     = "5Gi"
-}
-
 variable "cloudwatch_retention_days" {
   description = "Number of days to retain CloudWatch logs"
   type        = number
@@ -84,5 +77,5 @@ variable "cloudwatch_retention_days" {
 variable "alb_arn" {
   description = "ARN of the Application Load Balancer"
   type        = string
-  default     = null # Make it optional
+  default     = null
 }

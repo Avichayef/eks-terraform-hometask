@@ -2,60 +2,67 @@
 data "aws_region" "current" {}
 
 # Monitoring Module Main Config
-# Sets up complete monitoring stack using Helm and Terraform
-
-# Create monitoring namespace if it doesn't exist
-resource "null_resource" "monitoring_namespace" {
-  provisioner "local-exec" {
-    command = "kubectl create namespace ${var.namespace} --dry-run=client -o yaml | kubectl apply -f -"
+terraform {
+  required_providers {
+    kubectl = {
+      source  = "gavinbunney/kubectl"
+      version = ">= 1.14.0"
+    }
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = ">= 2.0.0"
+    }
   }
 }
 
-# Deploy Prometheus Stack using Helm
-resource "helm_release" "prometheus" {
-  name       = "prometheus"
-  namespace  = var.namespace
-  repository = "https://prometheus-community.github.io/helm-charts"
-  chart      = "kube-prometheus-stack"
-  version    = "70.1.1"
-
-  # Increase timeout to 20 minutes
-  timeout = 1200
-
-  # Add retry logic
-  recreate_pods = true
-  force_update  = true
-  cleanup_on_fail = true
-
-  create_namespace = false
-  skip_crds       = false
-
-  values = [
-    templatefile("${path.module}/templates/prometheus-values.yaml", {
-      sns_topic_arn = aws_sns_topic.monitoring_alerts.arn
-      retention_period = var.prometheus_retention_period
-      cpu_request = var.prometheus_cpu_request
-      memory_request = var.prometheus_memory_request
-      cpu_limit = var.prometheus_cpu_limit
-      memory_limit = var.prometheus_memory_limit
-      storage_size = var.prometheus_storage_size
-      admin_password = var.grafana_admin_password
-      grafana_storage = var.grafana_storage_size
-    })
-  ]
-
-  # Add wait for CRDs to be ready
-  provisioner "local-exec" {
-    command = "kubectl wait --for=condition=Established crd/prometheuses.monitoring.coreos.com crd/alertmanagers.monitoring.coreos.com --timeout=300s"
+# Create monitoring namespace
+resource "kubernetes_namespace" "monitoring" {
+  metadata {
+    name = var.namespace
   }
+}
 
-  depends_on = [
-    null_resource.monitoring_namespace
-  ]
+# Deploy Prometheus Operator using kubectl
+resource "kubectl_manifest" "prometheus_operator" {
+  yaml_body = file("${path.module}/manifests/prometheus-operator.yaml")
+  depends_on = [kubernetes_namespace.monitoring]
+}
+
+# Deploy Prometheus instance
+resource "kubectl_manifest" "prometheus" {
+  yaml_body = file("${path.module}/manifests/prometheus.yaml")
+  depends_on = [kubectl_manifest.prometheus_operator]
+}
+
+# Deploy Grafana
+resource "kubectl_manifest" "grafana" {
+  yaml_body = templatefile("${path.module}/manifests/grafana.yaml", {
+    admin_password = var.grafana_admin_password
+    storage_size = var.grafana_storage_size
+  })
+  depends_on = [kubernetes_namespace.monitoring]
+}
+
+# Deploy ServiceMonitor for Flask app
+resource "kubectl_manifest" "flask_servicemonitor" {
+  yaml_body = <<YAML
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: flask-app
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: flask-app
+  endpoints:
+  - port: http
+YAML
+  depends_on = [kubectl_manifest.prometheus_operator]
 }
 
 # CloudWatch Agent Configuration
-resource "kubernetes_config_map_v1" "cloudwatch_agent" {  # Changed to v1 version
+resource "kubernetes_config_map_v1" "cloudwatch_agent" {
   count = var.enable_cloudwatch ? 1 : 0
 
   metadata {
@@ -70,12 +77,10 @@ resource "kubernetes_config_map_v1" "cloudwatch_agent" {  # Changed to v1 versio
     })
   }
 
-  depends_on = [
-    null_resource.monitoring_namespace
-  ]
+  depends_on = [kubernetes_namespace.monitoring]
 }
 
-# CloudWatch Alarms - Only create if ALB ARN is provided
+# CloudWatch Alarms
 resource "aws_cloudwatch_metric_alarm" "flask_5xx_errors" {
   count = var.alb_arn != null ? 1 : 0
 

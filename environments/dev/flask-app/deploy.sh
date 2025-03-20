@@ -110,20 +110,6 @@ main() {
     # Deploy to Kubernetes
     echo "Deploying to Kubernetes..."
     kubectl apply -f k8s-deployment.yaml
-
-    # Wait for deployment
-    echo "Waiting for deployment to complete..."
-    kubectl rollout status deployment/${K8S_APP_NAME}
-
-    # Get service URL
-    echo "Getting service URL..."
-    export SERVICE_IP=$(kubectl get svc ${K8S_APP_NAME} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-
-    # Display results
-    echo "Application deployed successfully!"
-    echo "Service URL: http://${SERVICE_IP}:${K8S_SERVICE_PORT}"
-    echo "Health check URL: http://${SERVICE_IP}:${K8S_SERVICE_PORT}/health"
 }
 
-# Execute main function
-main
+main "$@"
