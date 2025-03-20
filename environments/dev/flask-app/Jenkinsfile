@@ -21,6 +21,10 @@
 pipeline {
     agent any
     
+    parameters {
+        booleanParam(name: 'DESTROY_INFRASTRUCTURE', defaultValue: false, description: 'Destroy all infrastructure?')
+    }
+    
     environment {
         AWS_DEFAULT_REGION = 'us-east-2'
         AWS_ACCOUNT_ID = '784866907805'
@@ -191,6 +195,54 @@ pipeline {
                 }
             }
         }
+
+        stage('Destroy Infrastructure') {
+            when {
+                expression { params.DESTROY_INFRASTRUCTURE }
+            }
+            steps {
+                withAWS(credentials: 'aws-credentials', region: env.AWS_DEFAULT_REGION) {
+                    script {
+                        try {
+                            // Delete Kubernetes resources first
+                            dir("${APP_PATH}") {
+                                sh """
+                                    kubectl delete deployment flask-app || true
+                                    kubectl delete service flask-app || true
+                                """
+                            }
+
+                            // Run Terraform destroy
+                            dir("${TERRAFORM_PATH}") {
+                                sh """
+                                    terraform init
+                                    terraform destroy -auto-approve
+                                """
+                            }
+
+                            // Clean up ECR images
+                            sh """
+                                aws ecr list-images \
+                                    --repository-name ${ECR_REPO_NAME} \
+                                    --query 'imageIds[*]' \
+                                    --output json | \
+                                aws ecr batch-delete-image \
+                                    --repository-name ${ECR_REPO_NAME} \
+                                    --image-ids file:///dev/stdin || true
+                            """
+                        } catch (Exception e) {
+                            echo "Destruction failed: ${e.getMessage()}"
+                            sh '''
+                                echo "=== Debug Information ==="
+                                kubectl get all --all-namespaces || true
+                                terraform show || true
+                            '''
+                            throw e
+                        }
+                    }
+                }
+            }
+        }
     }
     
     post {
@@ -199,28 +251,32 @@ pipeline {
         }
         failure {
             script {
-                sh '''
-                    echo "=== Debug Information ==="
-                    echo "AWS Identity:"
-                    aws sts get-caller-identity || true
-                    
-                    echo "Kubernetes Context:"
-                    kubectl config current-context || true
-                    
-                    echo "Kubernetes Namespaces:"
-                    kubectl get namespaces || true
-                    
-                    echo "Pod Status:"
-                    kubectl get pods || true
-                    
-                    echo "Deployment Status:"
-                    kubectl describe deployment flask-app || true
-                '''
+                if (params.DESTROY_INFRASTRUCTURE) {
+                    echo 'Infrastructure destruction failed! Check logs for details'
+                } else {
+                    sh '''
+                        echo "=== Debug Information ==="
+                        echo "AWS Identity:"
+                        aws sts get-caller-identity || true
+                        
+                        echo "Kubernetes Context:"
+                        kubectl config current-context || true
+                        
+                        echo "Kubernetes Namespaces:"
+                        kubectl get namespaces || true
+                        
+                        echo "Pod Status:"
+                        kubectl get pods || true
+                        
+                        echo "Deployment Status:"
+                        kubectl describe deployment flask-app || true
+                    '''
+                }
             }
             echo 'Pipeline failed! Check logs for details'
         }
         success {
-            echo 'Deployment completed successfully!'
+            echo 'Operation completed successfully!'
         }
     }
 }
