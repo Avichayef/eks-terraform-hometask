@@ -44,18 +44,59 @@ pipeline {
             steps {
                 dir("${APP_PATH}") {
                     script {
-                        def configEnv = readFile('config.env').readLines().findAll { line ->
-                            line.trim() && !line.startsWith('#')
-                        }.collect { line ->
-                            def parts = line.split('=', 2)
-                            return "${parts[0]}=${parts[1]}"
-                        }
-                        
-                        withEnv(configEnv) {
-                            sh """
-                                docker build -t ${ECR_REPO_NAME}:${BUILD_NUMBER} .
-                                docker tag ${ECR_REPO_NAME}:${BUILD_NUMBER} ${DOCKER_IMAGE}
-                            """
+                        try {
+                            // Add Docker system info check before build
+                            sh 'docker info'
+                            
+                            // Read and validate config.env
+                            def configEnv = readFile('config.env').readLines().findAll { line ->
+                                line.trim() && !line.startsWith('#')
+                            }.collect { line ->
+                                def parts = line.split('=', 2)
+                                return "${parts[0]}=${parts[1]}"
+                            }
+                            
+                            withEnv(configEnv) {
+                                // Clean up any existing images first
+                                sh """
+                                    docker image prune -f
+                                    docker images | grep ${ECR_REPO_NAME} | awk '{print \$3}' | xargs -r docker rmi -f
+                                """
+                                
+                                // Build with detailed output
+                                sh """
+                                    set -xe  # Enable command tracing and exit on error
+                                    
+                                    echo "Building image: ${ECR_REPO_NAME}:${BUILD_NUMBER}"
+                                    docker build --no-cache \
+                                        --progress=plain \
+                                        -t ${ECR_REPO_NAME}:${BUILD_NUMBER} . || {
+                                            echo "Docker build failed with exit code \$?"
+                                            docker logs \$(docker ps -ql) || true
+                                            exit 1
+                                    }
+                                    
+                                    echo "Tagging image as: ${DOCKER_IMAGE}"
+                                    docker tag ${ECR_REPO_NAME}:${BUILD_NUMBER} ${DOCKER_IMAGE} || {
+                                        echo "Docker tag failed with exit code \$?"
+                                        exit 1
+                                    }
+                                    
+                                    echo "Verifying image:"
+                                    docker images | grep ${ECR_REPO_NAME}
+                                """
+                            }
+                        } catch (Exception e) {
+                            echo "Build failed: ${e.getMessage()}"
+                            sh '''
+                                echo "=== Debug Information ==="
+                                docker system info
+                                docker ps -a
+                                docker images
+                                df -h
+                                free -m
+                            '''
+                            throw e
                         }
                     }
                 }
