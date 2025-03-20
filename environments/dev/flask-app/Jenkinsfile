@@ -94,6 +94,13 @@ pipeline {
                                     kubectl apply -f k8s-deployment.yaml
                                     kubectl set image deployment/${K8S_APP_NAME} ${K8S_APP_NAME}=${ECR_REPO}/${ECR_REPO_NAME}:${BUILD_NUMBER}
                                 '''
+                            } catch (Exception e) {
+                                echo "Deployment failed: ${e.getMessage()}"
+                                // Attempt rollback
+                                sh '''
+                                    kubectl rollout undo deployment/${K8S_APP_NAME} || true
+                                '''
+                                throw e
                             }
                         }
                     }
