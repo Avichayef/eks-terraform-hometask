@@ -74,3 +74,9 @@ variable "grafana_storage_size" {
   type        = string
   default     = "5Gi"
 }
+
+variable "cloudwatch_retention_days" {
+  description = "Number of days to retain CloudWatch logs"
+  type        = number
+  default     = 30
+}

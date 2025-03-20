@@ -80,7 +80,7 @@ module "monitoring" {
   prometheus_storage_size    = "10Gi"
   prometheus_cpu_request     = "200m"
   prometheus_memory_request  = "512Mi"
-  prometheus_cpu_limit      = "500m"
+  prometheus_cpu_limit     = "500m"
   prometheus_memory_limit   = "1Gi"
 
   # Grafana configuration
