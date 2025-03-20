@@ -1,0 +1,63 @@
+# Deployment Template
+# define Deployment and Service for the Flask app
+# Variables (${VAR_NAME}) are replaced with actual values during deployment.
+
+# Deployment Configuration - manage the Flask app pods
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${K8S_APP_NAME}  # deployment name
+  labels:
+    app: ${K8S_APP_NAME}  # Label to identify app
+spec:
+  replicas: ${K8S_REPLICAS}  # Number of replicas
+  selector:
+    matchLabels:
+      app: ${K8S_APP_NAME}  # Selector for pods 
+  template:
+    metadata:
+      labels:
+        app: ${K8S_APP_NAME}  # Labels the pods
+    spec:
+      containers:
+      - name: ${K8S_APP_NAME}
+        # ECR image path constructed from AWS account, region, and repo name
+        image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:latest
+        ports:
+        - containerPort: ${FLASK_PORT}  # Port the Flask app listens on
+        # Resource allocation for the container
+        resources:
+          requests:
+            cpu: ${K8S_CPU_REQUEST}     # Min CPU needed
+            memory: ${K8S_MEMORY_REQUEST}  # Min memory needed
+          limits:
+            cpu: ${K8S_CPU_LIMIT}       # Max CPU allowed
+            memory: ${K8S_MEMORY_LIMIT}  # Max memory allowed
+        # Health check configuration
+        livenessProbe:
+          httpGet:
+            path: /health  # Health check endpoint
+            port: ${FLASK_PORT}
+          initialDelaySeconds: ${K8S_PROBE_INITIAL_DELAY}  # Wait before first check
+          periodSeconds: ${K8S_PROBE_PERIOD}  # Time between checks
+        readinessProbe:
+          httpGet:
+            path: /health  # Readiness check endpoint
+            port: ${FLASK_PORT}
+          initialDelaySeconds: ${K8S_PROBE_INITIAL_DELAY}
+          periodSeconds: ${K8S_PROBE_PERIOD}
+
+---
+# Service Configuration - Exposes app externaly
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${K8S_APP_NAME}  # Service name
+spec:
+  type: LoadBalancer  # Creates an AWS LB
+  ports:
+  - port: ${K8S_SERVICE_PORT}  # External port
+    targetPort: ${FLASK_PORT}  # Container port to forward to
+    protocol: TCP
+  selector:
+    app: ${K8S_APP_NAME}  # Selects pods to receive traffic

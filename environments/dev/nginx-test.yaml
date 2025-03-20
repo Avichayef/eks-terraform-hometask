@@ -1,0 +1,60 @@
+# Test deployment config for Nginx
+# create Nginx and exposes via LB
+
+# Nginx Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  labels:
+    app: nginx
+spec:
+  replicas: 2  
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      # Anti-Affinity Config - Ensures high availability by run pods on different nodes
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:  # Changed from required to preferred
+          - weight: 100  # High weight to strongly prefer different nodes
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - nginx
+              topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80  # port 80 HTTP traffic
+        resources:
+          requests:
+            cpu: "100m"     # Request 0.1 CPU cores
+            memory: "128Mi" # Request 128MB memory
+          limits:
+            cpu: "200m"     # Limit to 0.2 CPU cores
+            memory: "256Mi" # Limit to 256MB memory
+
+---
+# LoadBalancer Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+spec:
+  type: LoadBalancer  # Expose service via AWS LB
+  ports:
+  - port: 80         # Service port
+    targetPort: 80   # Container port
+    protocol: TCP
+  selector:
+    app: nginx       # Select pods with label app=nginx

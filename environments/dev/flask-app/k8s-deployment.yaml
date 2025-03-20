@@ -1,0 +1,63 @@
+# Deployment Template
+# define Deployment and Service for the Flask app
+# Variables () are replaced with actual values during deployment.
+
+# Deployment Configuration - manage the Flask app pods
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flask-app  # deployment name
+  labels:
+    app: flask-app  # Label to identify app
+spec:
+  replicas: 2  # Number of replicas
+  selector:
+    matchLabels:
+      app: flask-app  # Selector for pods 
+  template:
+    metadata:
+      labels:
+        app: flask-app  # Labels the pods
+    spec:
+      containers:
+      - name: flask-app
+        # ECR image path constructed from AWS account, region, and repo name
+        image: 784866907805.dkr.ecr.us-east-2.amazonaws.com/flask-k8s-demo:latest
+        ports:
+        - containerPort: 5000  # Port the Flask app listens on
+        # Resource allocation for the container
+        resources:
+          requests:
+            cpu: 100m     # Min CPU needed
+            memory: 128Mi  # Min memory needed
+          limits:
+            cpu: 200m       # Max CPU allowed
+            memory: 256Mi  # Max memory allowed
+        # Health check configuration
+        livenessProbe:
+          httpGet:
+            path: /health  # Health check endpoint
+            port: 5000
+          initialDelaySeconds: 5  # Wait before first check
+          periodSeconds: 10  # Time between checks
+        readinessProbe:
+          httpGet:
+            path: /health  # Readiness check endpoint
+            port: 5000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+
+---
+# Service Configuration - Exposes app externaly
+apiVersion: v1
+kind: Service
+metadata:
+  name: flask-app  # Service name
+spec:
+  type: LoadBalancer  # Creates an AWS LB
+  ports:
+  - port: 80  # External port
+    targetPort: 5000  # Container port to forward to
+    protocol: TCP
+  selector:
+    app: flask-app  # Selects pods to receive traffic
