@@ -22,7 +22,7 @@ pipeline {
         AWS_DEFAULT_REGION = 'us-east-2'
         ECR_REPO = '784866907805.dkr.ecr.us-east-2.amazonaws.com'
         IMAGE_NAME = 'flask-app'
-        WORKSPACE_PATH = '.'  // Changed this to root since files are in root directory
+        APP_PATH = 'environments/dev/flask-app'  // Updated path
     }
 
     stages {
@@ -34,7 +34,7 @@ pipeline {
         
         stage('Build and Test') {
             steps {
-                dir("${WORKSPACE_PATH}") {
+                dir("${APP_PATH}") {
                     sh 'ls -la'  // Debug file structure
                     sh 'pwd'     // Show current directory
                     sh 'docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} .'
@@ -64,10 +64,12 @@ pipeline {
                     credentialsId: 'eks-kubeconfig',
                     variable: 'KUBECONFIG'
                 ]]) {
-                    sh '''
-                        kubectl apply -f k8s/
-                        kubectl set image deployment/flask-app flask-app=${ECR_REPO}/${IMAGE_NAME}:${BUILD_NUMBER}
-                    '''
+                    dir("${APP_PATH}") {
+                        sh '''
+                            kubectl apply -f k8s/
+                            kubectl set image deployment/flask-app flask-app=${ECR_REPO}/${IMAGE_NAME}:${BUILD_NUMBER}
+                        '''
+                    }
                 }
             }
         }
