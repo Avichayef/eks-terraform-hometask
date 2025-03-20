@@ -23,11 +23,14 @@ pipeline {
     
     environment {
         AWS_DEFAULT_REGION = 'us-east-2'
-        ECR_REPO = '784866907805.dkr.ecr.us-east-2.amazonaws.com'
+        AWS_ACCOUNT_ID = '784866907805'
+        ECR_REPO = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
+        ECR_REPO_NAME = 'flask-k8s-demo'
         APP_PATH = 'environments/dev/flask-app'
         AWS_CREDENTIALS = credentials('aws-credentials')
         TERRAFORM_PATH = 'environments/dev'
         K8S_CLUSTER_NAME = 'my-eks-cluster'
+        DOCKER_IMAGE = "${ECR_REPO}/${ECR_REPO_NAME}:${BUILD_NUMBER}"
     }
 
     stages {
@@ -49,7 +52,10 @@ pipeline {
                         }
                         
                         withEnv(configEnv) {
-                            sh 'docker build -t ${ECR_REPO_NAME}:${BUILD_NUMBER} .'
+                            sh """
+                                docker build -t ${ECR_REPO_NAME}:${BUILD_NUMBER} .
+                                docker tag ${ECR_REPO_NAME}:${BUILD_NUMBER} ${DOCKER_IMAGE}
+                            """
                         }
                     }
                 }
@@ -61,47 +67,41 @@ pipeline {
                 withAWS(credentials: 'aws-credentials', region: env.AWS_DEFAULT_REGION) {
                     dir("${APP_PATH}") {
                         script {
-                            sh '''
+                            sh """
                                 aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REPO}
-                                docker push ${ECR_REPO_NAME}:${BUILD_NUMBER}
-                            '''
+                                docker push ${DOCKER_IMAGE}
+                            """
                         }
                     }
                 }
             }
         }
 
-        stage('Import and Deploy Infrastructure') {
+        stage('Configure Kubernetes') {
             steps {
-                withCredentials([
-                    file(credentialsId: 'eks-kubeconfig', variable: 'KUBECONFIG'),
-                    aws(credentialsId: 'aws-credentials', region: env.AWS_DEFAULT_REGION)
-                ]) {
-                    dir("${TERRAFORM_PATH}") {
-                        script {
-                            try {
-                                // Initialize Terraform
-                                sh 'terraform init'
-                                
-                                // Import existing resources
-                                sh '''
-                                    chmod +x terraform-import.sh
-                                    ./terraform-import.sh || true  # Continue even if import fails
-                                '''
-                                
-                                // Apply Terraform changes with auto-approve
-                                sh '''
-                                    kubectl apply -f k8s-deployment.yaml
-                                    kubectl set image deployment/${K8S_APP_NAME} ${K8S_APP_NAME}=${ECR_REPO}/${ECR_REPO_NAME}:${BUILD_NUMBER}
-                                '''
-                            } catch (Exception e) {
-                                echo "Deployment failed: ${e.getMessage()}"
-                                // Attempt rollback
-                                sh '''
-                                    kubectl rollout undo deployment/${K8S_APP_NAME} || true
-                                '''
-                                throw e
-                            }
+                withAWS(credentials: 'aws-credentials', region: env.AWS_DEFAULT_REGION) {
+                    sh """
+                        aws eks update-kubeconfig --name ${K8S_CLUSTER_NAME} --region ${AWS_DEFAULT_REGION}
+                        kubectl config use-context arn:aws:eks:${AWS_DEFAULT_REGION}:${AWS_ACCOUNT_ID}:cluster/${K8S_CLUSTER_NAME}
+                    """
+                }
+            }
+        }
+
+        stage('Deploy to EKS') {
+            steps {
+                dir("${APP_PATH}") {
+                    script {
+                        try {
+                            sh """
+                                kubectl apply -f k8s-deployment.yaml
+                                kubectl set image deployment/flask-app flask-app=${DOCKER_IMAGE}
+                                kubectl rollout status deployment/flask-app
+                            """
+                        } catch (Exception e) {
+                            echo "Deployment failed: ${e.getMessage()}"
+                            sh 'kubectl rollout undo deployment/flask-app || true'
+                            throw e
                         }
                     }
                 }
@@ -126,14 +126,17 @@ pipeline {
                     echo "Kubernetes Namespaces:"
                     kubectl get namespaces || true
                     
-                    echo "Terraform State:"
-                    terraform state list || true
+                    echo "Pod Status:"
+                    kubectl get pods || true
+                    
+                    echo "Deployment Status:"
+                    kubectl describe deployment flask-app || true
                 '''
             }
             echo 'Pipeline failed! Check logs for details'
         }
         success {
-            echo 'Deployment and monitoring setup completed successfully!'
+            echo 'Deployment completed successfully!'
         }
     }
 }
