@@ -17,301 +17,62 @@
 
 pipeline {
     agent any
-
+    
     environment {
-        // Load config.env file content
-        CONFIG = readProperties file: 'eks-terraform/environments/dev/flask-app/config.env'
-        
-        // AWS Configuration
-        AWS_REGION = "${CONFIG.AWS_REGION}"
-        ECR_REPO_NAME = "${CONFIG.ECR_REPO_NAME}"
-        
-        // Application Configuration
-        K8S_APP_NAME = "${CONFIG.K8S_APP_NAME}"
-        
-        // Credentials
-        KUBECTL_CONFIG = credentials('eks-kubeconfig')
-        AWS_CREDENTIALS = credentials('aws-credentials')
-        
-        // Build Configuration
-        DOCKER_IMAGE_TAG = "${BUILD_NUMBER}"
-        
-        // Tool versions
-        KUBECTL_VERSION = "v1.24.0"
-        AWS_CLI_VERSION = "2.11.0"
+        AWS_DEFAULT_REGION = 'us-east-2'
+        ECR_REPO = '784866907805.dkr.ecr.us-east-2.amazonaws.com'
+        IMAGE_NAME = 'flask-app'
     }
 
     stages {
-        stage('Validate Prerequisites') {
-            steps {
-                script {
-                    // Check and install required Jenkins plugins
-                    def requiredPlugins = [
-                        'docker-workflow',
-                        'aws-credentials',
-                        'pipeline-aws',
-                        'kubernetes-cli'
-                    ]
-                    
-                    def installedPlugins = jenkins.model.Jenkins.instance.pluginManager.plugins
-                    requiredPlugins.each { plugin ->
-                        if (!installedPlugins.find { it.shortName == plugin }) {
-                            error "Required plugin ${plugin} is not installed. Please install it from Jenkins Plugin Manager."
-                        }
-                    }
-
-                    // Check Docker installation
-                    sh '''
-                        if ! command -v docker &> /dev/null; then
-                            echo "Installing Docker..."
-                            curl -fsSL https://get.docker.com -o get-docker.sh
-                            sudo sh get-docker.sh
-                            sudo usermod -aG docker jenkins
-                            sudo systemctl enable docker
-                            sudo systemctl start docker
-                        fi
-                        docker --version
-                    '''
-
-                    // Check AWS CLI installation
-                    sh '''
-                        if ! command -v aws &> /dev/null; then
-                            echo "Installing AWS CLI..."
-                            curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-                            unzip awscliv2.zip
-                            sudo ./aws/install
-                            rm -rf aws awscliv2.zip
-                        fi
-                        aws --version
-                    '''
-
-                    // Check kubectl installation
-                    sh '''
-                        if ! command -v kubectl &> /dev/null; then
-                            echo "Installing kubectl..."
-                            curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
-                            sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-                            rm kubectl
-                        fi
-                        kubectl version --client
-                    '''
-
-                    // Validate AWS credentials
-                    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
-                                    credentialsId: 'aws-credentials',
-                                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
-                        sh '''
-                            aws sts get-caller-identity || {
-                                echo "AWS credentials are not valid"
-                                exit 1
-                            }
-                        '''
-                    }
-
-                    // Validate required environment variables
-                    def requiredEnvVars = [
-                        'AWS_REGION',
-                        'ECR_REPO_NAME',
-                        'K8S_APP_NAME',
-                        'FLASK_PORT',
-                        'K8S_REPLICAS',
-                        'K8S_SERVICE_PORT',
-                        'K8S_CPU_REQUEST',
-                        'K8S_CPU_LIMIT',
-                        'K8S_MEMORY_REQUEST',
-                        'K8S_MEMORY_LIMIT'
-                    ]
-
-                    requiredEnvVars.each { var ->
-                        if (!CONFIG.getProperty(var)) {
-                            error "Required environment variable ${var} is not set in config.env"
-                        }
-                    }
-                }
-            }
-        }
-
         stage('Checkout') {
             steps {
                 checkout scm
             }
         }
-
-        stage('Run Tests') {
-            agent {
-                docker {
-                    image 'python:3.9-slim'
-                    reuseNode true
-                }
-            }
+        
+        stage('Build and Test') {
             steps {
                 dir('eks-terraform/environments/dev/flask-app') {
-                    script {
-                        try {
-                            echo "Installing test dependencies..."
-                            sh '''
-                                python -m pip install --upgrade pip
-                                pip install pytest pytest-cov
-                                pip install -r requirements.txt
-                            '''
-
-                            echo "Running unit tests with coverage..."
-                            sh '''
-                                python -m pytest tests/ -v --cov=app --cov-report=term-missing
-                            '''
-                        } catch (Exception e) {
-                            error "Test execution failed: ${e.message}"
-                        }
-                    }
+                    sh 'docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} .'
                 }
             }
         }
-
-        stage('Build and Push Docker Image') {
+        
+        stage('Push to ECR') {
             steps {
-                dir('eks-terraform/environments/dev/flask-app') {
-                    script {
-                        try {
-                            withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
-                                            credentialsId: 'aws-credentials',
-                                            accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                                            secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
-                                
-                                def AWS_ACCOUNT_ID = sh(
-                                    script: 'aws sts get-caller-identity --query Account --output text',
-                                    returnStdout: true
-                                ).trim()
-
-                                def ECR_REPO_URL = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-
-                                // Create ECR repository if it doesn't exist
-                                sh """
-                                    aws ecr describe-repositories --repository-names ${ECR_REPO_NAME} --region ${AWS_REGION} || \
-                                    aws ecr create-repository --repository-name ${ECR_REPO_NAME} --region ${AWS_REGION}
-                                """
-
-                                echo "Logging into ECR..."
-                                sh """
-                                    aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REPO_URL}
-                                """
-
-                                echo "Building Docker image..."
-                                sh """
-                                    docker build -t ${ECR_REPO_NAME}:${DOCKER_IMAGE_TAG} \
-                                        --build-arg FLASK_PORT=${CONFIG.FLASK_PORT} \
-                                        --no-cache .
-                                """
-
-                                echo "Pushing Docker image..."
-                                sh """
-                                    docker tag ${ECR_REPO_NAME}:${DOCKER_IMAGE_TAG} ${ECR_REPO_URL}/${ECR_REPO_NAME}:${DOCKER_IMAGE_TAG}
-                                    docker push ${ECR_REPO_URL}/${ECR_REPO_NAME}:${DOCKER_IMAGE_TAG}
-                                """
-                            }
-                        } catch (Exception e) {
-                            error "Docker build/push failed: ${e.message}"
-                        }
-                    }
+                withCredentials([[
+                    credentialsId: 'aws-credentials',
+                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                ]]) {
+                    sh '''
+                        aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin ${ECR_REPO}
+                        docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${ECR_REPO}/${IMAGE_NAME}:${BUILD_NUMBER}
+                        docker push ${ECR_REPO}/${IMAGE_NAME}:${BUILD_NUMBER}
+                    '''
                 }
             }
         }
-
+        
         stage('Deploy to EKS') {
             steps {
-                dir('eks-terraform/environments/dev/flask-app') {
-                    script {
-                        try {
-                            withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
-                                            credentialsId: 'aws-credentials',
-                                            accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                                            secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
-                                
-                                echo "Updating kubeconfig..."
-                                sh """
-                                    aws eks update-kubeconfig --region ${AWS_REGION} --name ${CONFIG.K8S_CLUSTER_NAME}
-                                """
-
-                                def AWS_ACCOUNT_ID = sh(
-                                    script: 'aws sts get-caller-identity --query Account --output text',
-                                    returnStdout: true
-                                ).trim()
-
-                                echo "Generating deployment file..."
-                                sh """
-                                    export AWS_ACCOUNT_ID=${AWS_ACCOUNT_ID}
-                                    export AWS_REGION=${AWS_REGION}
-                                    export ECR_REPO_NAME=${ECR_REPO_NAME}
-                                    export DOCKER_IMAGE_TAG=${DOCKER_IMAGE_TAG}
-                                    export FLASK_PORT=${CONFIG.FLASK_PORT}
-                                    export K8S_APP_NAME=${CONFIG.K8S_APP_NAME}
-                                    export K8S_REPLICAS=${CONFIG.K8S_REPLICAS}
-                                    export K8S_SERVICE_PORT=${CONFIG.K8S_SERVICE_PORT}
-                                    export K8S_CPU_REQUEST=${CONFIG.K8S_CPU_REQUEST}
-                                    export K8S_CPU_LIMIT=${CONFIG.K8S_CPU_LIMIT}
-                                    export K8S_MEMORY_REQUEST=${CONFIG.K8S_MEMORY_REQUEST}
-                                    export K8S_MEMORY_LIMIT=${CONFIG.K8S_MEMORY_LIMIT}
-                                    
-                                    envsubst < k8s-deployment.template.yaml > k8s-deployment.yaml
-                                """
-
-                                echo "Applying deployment..."
-                                sh """
-                                    kubectl apply -f k8s-deployment.yaml
-                                """
-
-                                echo "Waiting for rollout..."
-                                sh """
-                                    kubectl rollout status deployment/${CONFIG.K8S_APP_NAME} --timeout=300s
-                                """
-
-                                // Verify deployment
-                                sh """
-                                    kubectl get deployment ${CONFIG.K8S_APP_NAME} -o jsonpath='{.status.availableReplicas}' | grep ${CONFIG.K8S_REPLICAS}
-                                """
-                            }
-                        } catch (Exception e) {
-                            echo "Deployment failed, initiating rollback..."
-                            sh """
-                                kubectl rollout undo deployment/${CONFIG.K8S_APP_NAME}
-                            """
-                            error "Deployment failed and rolled back: ${e.message}"
-                        }
-                    }
+                withCredentials([[
+                    credentialsId: 'eks-kubeconfig',
+                    variable: 'KUBECONFIG'
+                ]]) {
+                    sh '''
+                        kubectl apply -f eks-terraform/environments/dev/flask-app/k8s/
+                        kubectl set image deployment/flask-app flask-app=${ECR_REPO}/${IMAGE_NAME}:${BUILD_NUMBER}
+                    '''
                 }
             }
         }
     }
-
+    
     post {
-        success {
-            script {
-                def serviceUrl = sh(
-                    script: "kubectl get svc ${CONFIG.K8S_APP_NAME} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'",
-                    returnStdout: true
-                ).trim()
-                
-                echo """
-                    Pipeline completed successfully!
-                    Application version: ${DOCKER_IMAGE_TAG}
-                    Service URL: http://${serviceUrl}
-                    
-                    Deployment Summary:
-                    - Replicas: ${CONFIG.K8S_REPLICAS}
-                    - CPU: ${CONFIG.K8S_CPU_REQUEST} - ${CONFIG.K8S_CPU_LIMIT}
-                    - Memory: ${CONFIG.K8S_MEMORY_REQUEST} - ${CONFIG.K8S_MEMORY_LIMIT}
-                """
-            }
-        }
-        failure {
-            echo "Pipeline failed! Check logs for details"
-        }
         always {
-            // Clean up Docker images
-            sh """
-                docker system prune -af
-                docker volume prune -f
-            """
+            cleanWs()
         }
     }
 }
