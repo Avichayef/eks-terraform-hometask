@@ -1,0 +1,17 @@
+# Remove .terraform directory from git
+git rm -r --cached environments/dev/.terraform
+
+# Create or update .gitignore file
+echo "# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc" > .gitignore
