@@ -49,8 +49,10 @@ resource "kubernetes_config_map" "cloudwatch_agent" {
   }
 }
 
-# CloudWatch Alarms
+# CloudWatch Alarms - Only create if ALB ARN is provided
 resource "aws_cloudwatch_metric_alarm" "flask_5xx_errors" {
+  count = var.alb_arn != null ? 1 : 0
+
   alarm_name          = "${var.environment}-flask-5xx-errors"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = "2"

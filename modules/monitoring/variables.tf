@@ -79,4 +79,5 @@ variable "cloudwatch_retention_days" {
 variable "alb_arn" {
   description = "ARN of the Application Load Balancer"
   type        = string
+  default     = null # Make it optional
 }

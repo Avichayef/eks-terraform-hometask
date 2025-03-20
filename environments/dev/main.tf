@@ -72,20 +72,23 @@ module "monitoring" {
 
   cluster_name    = var.cluster_name
   environment     = var.environment
-  namespace      = "monitoring"
+  namespace       = "monitoring"
 
   prometheus_retention_period = "15d"
   prometheus_storage_size    = "10Gi"
   prometheus_cpu_request     = "200m"
   prometheus_memory_request  = "512Mi"
-  prometheus_cpu_limit      = "500m"
-  prometheus_memory_limit   = "1Gi"
+  prometheus_cpu_limit       = "500m"
+  prometheus_memory_limit    = "1Gi"
 
-  grafana_storage_size     = "5Gi"
-  grafana_admin_password   = var.grafana_admin_password
+  grafana_storage_size      = "5Gi"
+  grafana_admin_password    = var.grafana_admin_password
 
-  enable_cloudwatch        = true
+  enable_cloudwatch         = true
   cloudwatch_retention_days = 30
+
+  # ALB ARN is now optional
+  # alb_arn = module.alb.arn  # Uncomment and provide if you want ALB monitoring
 
   depends_on = [
     module.eks
