@@ -4,34 +4,23 @@ data "aws_region" "current" {}
 # Monitoring Module Main Config
 # Sets up complete monitoring stack using Helm and Terraform
 
-# Create monitoring namespace
-resource "kubernetes_namespace_v1" "monitoring" {
-  metadata {
-    name = var.namespace
-  }
-
-  lifecycle {
-    prevent_destroy = true
-    ignore_changes = [
-      metadata[0].labels,
-      metadata[0].annotations,
-    ]
+# Create monitoring namespace if it doesn't exist
+resource "null_resource" "monitoring_namespace" {
+  provisioner "local-exec" {
+    command = "kubectl create namespace ${var.namespace} --dry-run=client -o yaml | kubectl apply -f -"
   }
 }
 
 # Deploy Prometheus Stack using Helm
-resource "helm_release" "prometheus_stack" {
+resource "helm_release" "prometheus" {  # Changed name from prometheus_stack to prometheus
   name       = "prometheus"
-  namespace  = "monitoring"
+  namespace  = var.namespace
   repository = "https://prometheus-community.github.io/helm-charts"
   chart      = "kube-prometheus-stack"
   version    = "70.1.1"
 
-  # Increase timeout to 15 minutes
   timeout = 900
-
-  # Add creation of CRDs first
-  create_namespace = true
+  create_namespace = false
   skip_crds       = false
 
   values = [
@@ -49,12 +38,12 @@ resource "helm_release" "prometheus_stack" {
   ]
 
   depends_on = [
-    kubernetes_namespace_v1.monitoring
+    null_resource.monitoring_namespace
   ]
 }
 
 # CloudWatch Agent Configuration
-resource "kubernetes_config_map" "cloudwatch_agent" {
+resource "kubernetes_config_map_v1" "cloudwatch_agent" {  # Changed to v1 version
   count = var.enable_cloudwatch ? 1 : 0
 
   metadata {
@@ -70,7 +59,7 @@ resource "kubernetes_config_map" "cloudwatch_agent" {
   }
 
   depends_on = [
-    kubernetes_namespace_v1.monitoring
+    null_resource.monitoring_namespace
   ]
 }
 

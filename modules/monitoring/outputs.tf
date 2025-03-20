@@ -10,5 +10,5 @@ output "prometheus_url" {
 
 output "monitoring_namespace" {
   description = "Kubernetes namespace for monitoring"
-  value       = kubernetes_namespace.monitoring.metadata[0].name
+  value       = var.namespace
 }
