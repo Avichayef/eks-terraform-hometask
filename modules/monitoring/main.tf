@@ -38,7 +38,7 @@ resource "kubernetes_config_map" "cloudwatch_agent" {
 
   metadata {
     name      = "cloudwatch-agent-config"
-    namespace = kubernetes_namespace.monitoring.metadata[0].name
+    namespace = var.namespace
   }
 
   data = {
@@ -47,6 +47,10 @@ resource "kubernetes_config_map" "cloudwatch_agent" {
       region      = data.aws_region.current.name
     })
   }
+
+  depends_on = [
+    kubernetes_namespace.monitoring
+  ]
 }
 
 # CloudWatch Alarms - Only create if ALB ARN is provided

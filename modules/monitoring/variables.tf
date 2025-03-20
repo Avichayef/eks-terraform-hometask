@@ -1,6 +1,17 @@
+variable "enable_cloudwatch" {
+  description = "Enable CloudWatch monitoring"
+  type        = bool
+  default     = true
+}
+
 variable "cluster_name" {
   description = "Name of the EKS cluster"
   type        = string
+
+  validation {
+    condition     = length(var.cluster_name) > 0
+    error_message = "Cluster name cannot be empty."
+  }
 }
 
 variable "environment" {
@@ -12,12 +23,6 @@ variable "namespace" {
   description = "Kubernetes namespace for monitoring"
   type        = string
   default     = "monitoring"
-}
-
-variable "enable_cloudwatch" {
-  description = "Enable CloudWatch integration"
-  type        = bool
-  default     = true
 }
 
 variable "prometheus_retention_period" {
