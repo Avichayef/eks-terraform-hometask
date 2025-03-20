@@ -185,3 +185,4 @@ kubectl rollout history deployment/flask-app
 # Check pod logs
 kubectl logs -l app=flask-app
 ```
+.
