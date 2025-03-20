@@ -44,13 +44,10 @@ pipeline {
         
         stage('Push to ECR') {
             steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'aws-credentials',
-                        usernameVariable: 'AWS_ACCESS_KEY_ID',
-                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
-                    )
-                ]) {
+                withCredentials([[$class: 'AWSCredentialsBinding',
+                    credentialsId: 'aws-credentials',
+                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
                     sh '''
                         aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin ${ECR_REPO}
                         docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${ECR_REPO}/${IMAGE_NAME}:${BUILD_NUMBER}
@@ -62,9 +59,7 @@ pipeline {
         
         stage('Deploy to EKS') {
             steps {
-                withCredentials([
-                    file(credentialsId: 'eks-kubeconfig', variable: 'KUBECONFIG')
-                ]) {
+                withCredentials([file(credentialsId: 'eks-kubeconfig', variable: 'KUBECONFIG')]) {
                     dir("${APP_PATH}") {
                         sh '''
                             kubectl apply -f k8s/
