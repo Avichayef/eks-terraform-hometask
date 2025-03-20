@@ -29,7 +29,7 @@ pipeline {
         APP_PATH = 'environments/dev/flask-app'
         AWS_CREDENTIALS = credentials('aws-credentials')
         TERRAFORM_PATH = 'environments/dev'
-        K8S_CLUSTER_NAME = 'my-eks-cluster'
+        K8S_CLUSTER_NAME = 'my-eks'  // Updated from 'my-eks-cluster' to 'my-eks'
         DOCKER_IMAGE = "${ECR_REPO}/${ECR_REPO_NAME}:${BUILD_NUMBER}"
     }
 
@@ -121,28 +121,71 @@ pipeline {
         stage('Configure Kubernetes') {
             steps {
                 withAWS(credentials: 'aws-credentials', region: env.AWS_DEFAULT_REGION) {
-                    sh """
-                        aws eks update-kubeconfig --name ${K8S_CLUSTER_NAME} --region ${AWS_DEFAULT_REGION}
-                        kubectl config use-context arn:aws:eks:${AWS_DEFAULT_REGION}:${AWS_ACCOUNT_ID}:cluster/${K8S_CLUSTER_NAME}
-                    """
+                    script {
+                        try {
+                            // Verify AWS authentication
+                            sh 'aws sts get-caller-identity'
+                            
+                            // Update kubeconfig with retry
+                            retry(3) {
+                                sh """
+                                    aws eks update-kubeconfig \
+                                        --name ${K8S_CLUSTER_NAME} \
+                                        --region ${AWS_DEFAULT_REGION} \
+                                        --alias ${K8S_CLUSTER_NAME}
+                                """
+                            }
+                            
+                            // Verify Kubernetes connectivity
+                            sh """
+                                kubectl config current-context
+                                kubectl cluster-info
+                                kubectl get nodes
+                            """
+                        } catch (Exception e) {
+                            echo "Kubernetes configuration failed: ${e.getMessage()}"
+                            sh '''
+                                echo "=== Debug Information ==="
+                                aws eks list-clusters
+                                kubectl config view
+                                aws sts get-caller-identity
+                            '''
+                            throw e
+                        }
+                    }
                 }
             }
         }
 
         stage('Deploy to EKS') {
             steps {
-                dir("${APP_PATH}") {
-                    script {
-                        try {
-                            sh """
-                                kubectl apply -f k8s-deployment.yaml
-                                kubectl set image deployment/flask-app flask-app=${DOCKER_IMAGE}
-                                kubectl rollout status deployment/flask-app
-                            """
-                        } catch (Exception e) {
-                            echo "Deployment failed: ${e.getMessage()}"
-                            sh 'kubectl rollout undo deployment/flask-app || true'
-                            throw e
+                withAWS(credentials: 'aws-credentials', region: env.AWS_DEFAULT_REGION) {
+                    dir("${APP_PATH}") {
+                        script {
+                            try {
+                                // Verify authentication before deployment
+                                sh """
+                                    kubectl config use-context ${K8S_CLUSTER_NAME}
+                                    kubectl get namespace default
+                                    
+                                    # Apply deployment with detailed output
+                                    kubectl apply -f k8s-deployment.yaml --record
+                                    
+                                    # Update image and wait for rollout
+                                    kubectl set image deployment/flask-app flask-app=${DOCKER_IMAGE} --record
+                                    kubectl rollout status deployment/flask-app --timeout=300s
+                                """
+                            } catch (Exception e) {
+                                echo "Deployment failed: ${e.getMessage()}"
+                                sh '''
+                                    echo "=== Deployment Debug Info ==="
+                                    kubectl get events --sort-by=.metadata.creationTimestamp
+                                    kubectl get pods -o wide
+                                    kubectl describe deployment flask-app
+                                '''
+                                sh 'kubectl rollout undo deployment/flask-app || true'
+                                throw e
+                            }
                         }
                     }
                 }
