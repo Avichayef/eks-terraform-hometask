@@ -5,20 +5,6 @@ data "aws_region" "current" {}
 # Sets up complete monitoring stack using Helm and Terraform
 
 # Create monitoring namespace
-resource "kubernetes_namespace" "monitoring" {
-  metadata {
-    name = var.namespace
-  }
-
-  lifecycle {
-    ignore_changes = [
-      metadata[0].labels,
-      metadata[0].annotations,
-    ]
-  }
-}
-
-# Alternative approach using kubernetes_namespace_v1
 resource "kubernetes_namespace_v1" "monitoring" {
   metadata {
     name = var.namespace
@@ -26,6 +12,10 @@ resource "kubernetes_namespace_v1" "monitoring" {
 
   lifecycle {
     prevent_destroy = true
+    ignore_changes = [
+      metadata[0].labels,
+      metadata[0].annotations,
+    ]
   }
 }
 
@@ -59,7 +49,7 @@ resource "helm_release" "prometheus_stack" {
   ]
 
   depends_on = [
-    kubernetes_namespace.monitoring
+    kubernetes_namespace_v1.monitoring
   ]
 }
 
@@ -80,7 +70,7 @@ resource "kubernetes_config_map" "cloudwatch_agent" {
   }
 
   depends_on = [
-    kubernetes_namespace.monitoring
+    kubernetes_namespace_v1.monitoring
   ]
 }
 
