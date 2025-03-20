@@ -1,12 +1,17 @@
 # Output values from the EKS module
 
+output "cluster_id" {
+  description = "EKS cluster ID"
+  value       = aws_eks_cluster.main.id
+}
+
 output "cluster_endpoint" {
-  description = "Endpoint for the EKS cluster API server"
+  description = "EKS cluster endpoint"
   value       = aws_eks_cluster.main.endpoint
 }
 
 output "cluster_name" {
-  description = "Name of the EKS cluster"
+  description = "EKS cluster name"
   value       = aws_eks_cluster.main.name
 }
 
@@ -28,6 +33,8 @@ output "cluster_token" {
   value = data.aws_eks_cluster_auth.cluster.token
 }
 
-output "alb_arn" {
-  value = aws_lb.main.arn
-}
+# Remove or comment out the ALB output if not needed
+# output "alb_arn" {
+#   description = "ARN of the Application Load Balancer"
+#   value       = aws_lb.main.arn
+# }

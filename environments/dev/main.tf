@@ -68,26 +68,22 @@ provider "helm" {
 
 # Monitoring Module Configuration
 module "monitoring" {
-  source = "../../modules/monitoring"  # Verify this path exists
+  source = "../../modules/monitoring"
 
   cluster_name    = var.cluster_name
   environment     = var.environment
-  alb_arn        = module.eks.alb_arn
   namespace      = "monitoring"
 
-  # Prometheus configuration
   prometheus_retention_period = "15d"
   prometheus_storage_size    = "10Gi"
   prometheus_cpu_request     = "200m"
   prometheus_memory_request  = "512Mi"
-  prometheus_cpu_limit     = "500m"
+  prometheus_cpu_limit      = "500m"
   prometheus_memory_limit   = "1Gi"
 
-  # Grafana configuration
   grafana_storage_size     = "5Gi"
   grafana_admin_password   = var.grafana_admin_password
 
-  # CloudWatch configuration
   enable_cloudwatch        = true
   cloudwatch_retention_days = 30
 

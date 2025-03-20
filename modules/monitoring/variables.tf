@@ -14,9 +14,11 @@ variable "namespace" {
   default     = "monitoring"
 }
 
+# Remove or make ALB ARN optional
 variable "alb_arn" {
   description = "ARN of the Application Load Balancer"
   type        = string
+  default     = ""  # Make it optional
 }
 
 variable "prometheus_retention_period" {
