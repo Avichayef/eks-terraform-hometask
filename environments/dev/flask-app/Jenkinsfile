@@ -1,10 +1,11 @@
 /**
- * Jenkins Pipeline for Flask App CI/CD
+ * Jenkins Pipeline for Flask App CI/CD with Monitoring
  * 
  * Prerequisites Installation and Validation:
  * - AWS CLI
  * - Docker
  * - kubectl
+ * - Helm
  * - Required Jenkins plugins
  * 
  * Pipeline Steps:
@@ -13,6 +14,8 @@
  * 3. Run unit tests
  * 4. Build and push Docker image
  * 5. Deploy to EKS with rollback
+ * 6. Deploy monitoring stack
+ * 7. Configure autoscaling
  */
 
 pipeline {
@@ -22,7 +25,9 @@ pipeline {
         AWS_DEFAULT_REGION = 'us-east-2'
         ECR_REPO = '784866907805.dkr.ecr.us-east-2.amazonaws.com'
         APP_PATH = 'environments/dev/flask-app'
+        MONITORING_PATH = 'environments/dev/monitoring'
         AWS_CREDENTIALS = credentials('aws-credentials')
+        TERRAFORM_PATH = 'environments/dev'
     }
 
     stages {
@@ -82,6 +87,29 @@ pipeline {
                 }
             }
         }
+
+        stage('Terraform Init and Plan') {
+            steps {
+                withAWS(credentials: 'aws-credentials', region: env.AWS_DEFAULT_REGION) {
+                    dir("${TERRAFORM_PATH}") {
+                        sh '''
+                            terraform init
+                            terraform plan -out=tfplan
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Terraform Apply') {
+            steps {
+                withAWS(credentials: 'aws-credentials', region: env.AWS_DEFAULT_REGION) {
+                    dir("${TERRAFORM_PATH}") {
+                        sh 'terraform apply -auto-approve tfplan'
+                    }
+                }
+            }
+        }
         
         stage('Deploy to EKS') {
             steps {
@@ -106,11 +134,63 @@ pipeline {
                 }
             }
         }
+
+        stage('Deploy Monitoring Stack') {
+            steps {
+                withCredentials([file(credentialsId: 'eks-kubeconfig', variable: 'KUBECONFIG')]) {
+                    dir("${MONITORING_PATH}") {
+                        sh '''
+                            # Add Helm repos
+                            helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+                            helm repo add grafana https://grafana.github.io/helm-charts
+                            helm repo update
+
+                            # Deploy monitoring stack
+                            kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+                            
+                            # Deploy Prometheus stack with values from terraform.tfvars
+                            GRAFANA_PASSWORD=$(grep 'grafana_admin_password' ../*.tfvars | cut -d '=' -f2 | tr -d ' "')
+                            helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+                                --namespace monitoring \
+                                --set grafana.adminPassword=$GRAFANA_PASSWORD \
+                                -f prometheus-values.yaml
+
+                            # Deploy CloudWatch agent
+                            kubectl create namespace amazon-cloudwatch --dry-run=client -o yaml | kubectl apply -f -
+                            kubectl apply -f cloudwatch-agent-config.yaml
+
+                            # Verify deployments
+                            kubectl rollout status deployment/prometheus-grafana -n monitoring
+                            kubectl rollout status statefulset/prometheus-prometheus-kube-prometheus-prometheus -n monitoring
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Configure Autoscaling') {
+            steps {
+                withCredentials([file(credentialsId: 'eks-kubeconfig', variable: 'KUBECONFIG')]) {
+                    dir("${APP_PATH}") {
+                        sh '''
+                            kubectl apply -f hpa.yaml
+                            kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+                        '''
+                    }
+                }
+            }
+        }
     }
     
     post {
         always {
             cleanWs()
+        }
+        success {
+            echo 'Deployment and monitoring setup completed successfully!'
+        }
+        failure {
+            echo 'Pipeline failed! Check logs for details'
         }
     }
 }

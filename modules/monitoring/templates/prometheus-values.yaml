@@ -1,0 +1,23 @@
+prometheus:
+  prometheusSpec:
+    retention: ${retention_period}
+    resources:
+      requests:
+        cpu: ${cpu_request}
+        memory: ${memory_request}
+      limits:
+        cpu: ${cpu_limit}
+        memory: ${memory_limit}
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: ${storage_size}
+
+grafana:
+  adminPassword: ${admin_password}
+  persistence:
+    enabled: true
+    size: ${grafana_storage}

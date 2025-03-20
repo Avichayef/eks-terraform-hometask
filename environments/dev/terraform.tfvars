@@ -12,3 +12,5 @@ public_subnet_cidrs = [
   "10.0.102.0/24",
   "10.0.103.0/24"
 ]
+
+grafana_admin_password = "admin123"
