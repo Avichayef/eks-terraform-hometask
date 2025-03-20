@@ -19,3 +19,15 @@ output "node_security_group_id" {
   description = "Security group ID attached to the EKS nodes"
   value       = aws_security_group.eks_nodes.id
 }
+
+output "cluster_ca_certificate" {
+  value = aws_eks_cluster.main.certificate_authority[0].data
+}
+
+output "cluster_token" {
+  value = data.aws_eks_cluster_auth.cluster.token
+}
+
+output "alb_arn" {
+  value = aws_lb.main.arn
+}

@@ -26,7 +26,7 @@ terraform {
 
 # VPC Module Configuration
 module "vpc" {
-  source = "../../modules/vpc"
+  source = "../../modules/vpc"  # Verify this path exists
 
   cluster_name         = var.cluster_name
   environment         = var.environment
@@ -43,7 +43,7 @@ module "vpc" {
 
 # EKS Module Configuration
 module "eks" {
-  source = "../../modules/eks"
+  source = "../../modules/eks"  # Verify this path exists
 
   cluster_name       = var.cluster_name
   vpc_id            = module.vpc.vpc_id
@@ -68,7 +68,7 @@ provider "helm" {
 
 # Monitoring Module Configuration
 module "monitoring" {
-  source = "../../modules/monitoring"
+  source = "../../modules/monitoring"  # Verify this path exists
 
   cluster_name    = var.cluster_name
   environment     = var.environment
