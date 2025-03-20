@@ -22,7 +22,7 @@ pipeline {
         AWS_DEFAULT_REGION = 'us-east-2'
         ECR_REPO = '784866907805.dkr.ecr.us-east-2.amazonaws.com'
         IMAGE_NAME = 'flask-app'
-        APP_PATH = 'environments/dev/flask-app'  // Updated path
+        APP_PATH = 'environments/dev/flask-app'
     }
 
     stages {
@@ -35,8 +35,8 @@ pipeline {
         stage('Build and Test') {
             steps {
                 dir("${APP_PATH}") {
-                    sh 'ls -la'  // Debug file structure
-                    sh 'pwd'     // Show current directory
+                    sh 'ls -la'
+                    sh 'pwd'
                     sh 'docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} .'
                 }
             }
@@ -44,11 +44,13 @@ pipeline {
         
         stage('Push to ECR') {
             steps {
-                withCredentials([[
-                    credentialsId: 'aws-credentials',
-                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                ]]) {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'aws-credentials',
+                        usernameVariable: 'AWS_ACCESS_KEY_ID',
+                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                    )
+                ]) {
                     sh '''
                         aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin ${ECR_REPO}
                         docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${ECR_REPO}/${IMAGE_NAME}:${BUILD_NUMBER}
@@ -60,10 +62,9 @@ pipeline {
         
         stage('Deploy to EKS') {
             steps {
-                withCredentials([[
-                    credentialsId: 'eks-kubeconfig',
-                    variable: 'KUBECONFIG'
-                ]]) {
+                withCredentials([
+                    file(credentialsId: 'eks-kubeconfig', variable: 'KUBECONFIG')
+                ]) {
                     dir("${APP_PATH}") {
                         sh '''
                             kubectl apply -f k8s/
