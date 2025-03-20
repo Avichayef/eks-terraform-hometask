@@ -14,21 +14,26 @@ resource "kubernetes_namespace" "monitoring" {
 # Deploy Prometheus Stack using Helm
 resource "helm_release" "prometheus_stack" {
   name       = "prometheus"
+  namespace  = "monitoring"
   repository = "https://prometheus-community.github.io/helm-charts"
   chart      = "kube-prometheus-stack"
-  namespace  = kubernetes_namespace.monitoring.metadata[0].name
+  version    = "70.1.1"
+
+  # Increase timeout to 15 minutes
+  timeout = 900
+
+  # Add creation of CRDs first
+  create_namespace = true
+  skip_crds       = false
 
   values = [
     templatefile("${path.module}/templates/prometheus-values.yaml", {
-      retention_period = var.prometheus_retention_period
-      storage_size    = var.prometheus_storage_size
-      cpu_request     = var.prometheus_cpu_request
-      memory_request  = var.prometheus_memory_request
-      cpu_limit       = var.prometheus_cpu_limit
-      memory_limit    = var.prometheus_memory_limit
-      grafana_storage = var.grafana_storage_size
-      admin_password  = var.grafana_admin_password
+      sns_topic_arn = aws_sns_topic.monitoring_alerts.arn
     })
+  ]
+
+  depends_on = [
+    kubernetes_namespace.monitoring
   ]
 }
 
