@@ -97,7 +97,7 @@ pipeline {
                             
                             withEnv(configEnv) {
                                 sh '''
-                                    kubectl apply -f k8s/
+                                    kubectl apply -f k8s-deployment.yaml
                                     kubectl set image deployment/${K8S_APP_NAME} ${K8S_APP_NAME}=${ECR_REPO}/${ECR_REPO_NAME}:${BUILD_NUMBER}
                                 '''
                             }
