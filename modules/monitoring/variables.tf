@@ -14,11 +14,10 @@ variable "namespace" {
   default     = "monitoring"
 }
 
-# Remove or make ALB ARN optional
-variable "alb_arn" {
-  description = "ARN of the Application Load Balancer"
-  type        = string
-  default     = ""  # Make it optional
+variable "enable_cloudwatch" {
+  description = "Enable CloudWatch integration"
+  type        = bool
+  default     = true
 }
 
 variable "prometheus_retention_period" {
@@ -59,12 +58,6 @@ variable "prometheus_memory_limit" {
 
 # Add all other variables for Prometheus, Grafana, and CloudWatch configuration
 
-variable "enable_cloudwatch" {
-  description = "Enable CloudWatch integration"
-  type        = bool
-  default     = true
-}
-
 variable "grafana_admin_password" {
   description = "Admin password for Grafana"
   type        = string
@@ -81,4 +74,9 @@ variable "cloudwatch_retention_days" {
   description = "Number of days to retain CloudWatch logs"
   type        = number
   default     = 30
+}
+
+variable "alb_arn" {
+  description = "ARN of the Application Load Balancer"
+  type        = string
 }

@@ -1,3 +1,6 @@
+# Add the AWS region data source
+data "aws_region" "current" {}
+
 # Monitoring Module Main Config
 # Sets up complete monitoring stack using Helm and Terraform
 

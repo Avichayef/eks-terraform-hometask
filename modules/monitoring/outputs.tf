@@ -1,7 +1,14 @@
 output "grafana_url" {
-  value = "${aws_lb.main.dns_name}/grafana"
+  description = "Grafana URL"
+  value       = "http://localhost:3000"  # Default local access via port-forward
 }
 
 output "prometheus_url" {
-  value = "${aws_lb.main.dns_name}/prometheus"
+  description = "Prometheus URL"
+  value       = "http://localhost:9090"  # Default local access via port-forward
+}
+
+output "monitoring_namespace" {
+  description = "Kubernetes namespace for monitoring"
+  value       = kubernetes_namespace.monitoring.metadata[0].name
 }
