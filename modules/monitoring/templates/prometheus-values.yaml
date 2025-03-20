@@ -16,8 +16,31 @@ prometheus:
             requests:
               storage: ${storage_size}
 
+    # Add pod anti-affinity to spread pods
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - prometheus
+            topologyKey: kubernetes.io/hostname
+
 grafana:
   adminPassword: ${admin_password}
   persistence:
     enabled: true
     size: ${grafana_storage}
+  
+  # Add resource limits for Grafana
+  resources:
+    limits:
+      cpu: "200m"
+      memory: "256Mi"
+    requests:
+      cpu: "100m"
+      memory: "128Mi"

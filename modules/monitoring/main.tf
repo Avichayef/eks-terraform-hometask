@@ -12,14 +12,21 @@ resource "null_resource" "monitoring_namespace" {
 }
 
 # Deploy Prometheus Stack using Helm
-resource "helm_release" "prometheus" {  # Changed name from prometheus_stack to prometheus
+resource "helm_release" "prometheus" {
   name       = "prometheus"
   namespace  = var.namespace
   repository = "https://prometheus-community.github.io/helm-charts"
   chart      = "kube-prometheus-stack"
   version    = "70.1.1"
 
-  timeout = 900
+  # Increase timeout to 20 minutes
+  timeout = 1200
+
+  # Add retry logic
+  recreate_pods = true
+  force_update  = true
+  cleanup_on_fail = true
+
   create_namespace = false
   skip_crds       = false
 
@@ -36,6 +43,11 @@ resource "helm_release" "prometheus" {  # Changed name from prometheus_stack to 
       grafana_storage = var.grafana_storage_size
     })
   ]
+
+  # Add wait for CRDs to be ready
+  provisioner "local-exec" {
+    command = "kubectl wait --for=condition=Established crd/prometheuses.monitoring.coreos.com crd/alertmanagers.monitoring.coreos.com --timeout=300s"
+  }
 
   depends_on = [
     null_resource.monitoring_namespace
