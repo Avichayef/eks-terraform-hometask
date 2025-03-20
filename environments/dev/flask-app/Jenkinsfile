@@ -28,6 +28,7 @@ pipeline {
         MONITORING_PATH = 'environments/dev/monitoring'
         AWS_CREDENTIALS = credentials('aws-credentials')
         TERRAFORM_PATH = 'environments/dev'
+        K8S_CLUSTER_NAME = 'my-eks-cluster' // Update this with your actual cluster name
     }
 
     stages {
@@ -88,23 +89,49 @@ pipeline {
             }
         }
 
+        stage('Configure Kubernetes') {
+            steps {
+                withAWS(credentials: 'aws-credentials', region: env.AWS_DEFAULT_REGION) {
+                    sh '''
+                        # Update kubeconfig
+                        aws eks update-kubeconfig --name ${K8S_CLUSTER_NAME} --region ${AWS_DEFAULT_REGION}
+                        
+                        # Verify connection
+                        kubectl cluster-info
+                        kubectl get nodes
+                    '''
+                }
+            }
+        }
+
         stage('Terraform Init and Plan') {
             steps {
                 withAWS(credentials: 'aws-credentials', region: env.AWS_DEFAULT_REGION) {
-                    dir("${TERRAFORM_PATH}") {
-                        sh '''
-                            terraform init
-
-                            # Create monitoring namespace if it doesn't exist
-                            if ! kubectl get namespace monitoring > /dev/null 2>&1; then
-                                kubectl create namespace monitoring
-                            fi
-
-                            # Import the namespace into Terraform state
-                            terraform import module.monitoring.kubernetes_namespace_v1.monitoring monitoring || true
-
-                            terraform plan -out=tfplan
-                        '''
+                    withCredentials([file(credentialsId: 'eks-kubeconfig', variable: 'KUBECONFIG')]) {
+                        dir("${TERRAFORM_PATH}") {
+                            sh '''
+                                set -xe
+                                
+                                # Initialize Terraform
+                                terraform init
+                                
+                                # Verify AWS connectivity
+                                aws sts get-caller-identity
+                                
+                                # Verify Kubernetes connectivity
+                                kubectl cluster-info
+                                
+                                # Create or verify monitoring namespace
+                                kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+                                
+                                # Import the namespace into Terraform state if not already imported
+                                terraform state list | grep kubernetes_namespace_v1.monitoring || \
+                                terraform import module.monitoring.kubernetes_namespace_v1.monitoring monitoring
+                                
+                                # Run Terraform plan
+                                terraform plan -out=tfplan
+                            '''
+                        }
                     }
                 }
             }
@@ -113,8 +140,13 @@ pipeline {
         stage('Terraform Apply') {
             steps {
                 withAWS(credentials: 'aws-credentials', region: env.AWS_DEFAULT_REGION) {
-                    dir("${TERRAFORM_PATH}") {
-                        sh 'terraform apply -auto-approve tfplan'
+                    withCredentials([file(credentialsId: 'eks-kubeconfig', variable: 'KUBECONFIG')]) {
+                        dir("${TERRAFORM_PATH}") {
+                            sh '''
+                                set -xe
+                                terraform apply -auto-approve tfplan
+                            '''
+                        }
                     }
                 }
             }
@@ -195,11 +227,30 @@ pipeline {
         always {
             cleanWs()
         }
+        failure {
+            script {
+                sh '''
+                    echo "=== Debug Information ==="
+                    echo "AWS Identity:"
+                    aws sts get-caller-identity || true
+                    
+                    echo "Kubernetes Context:"
+                    kubectl config current-context || true
+                    
+                    echo "Kubernetes Namespaces:"
+                    kubectl get namespaces || true
+                    
+                    echo "Terraform State:"
+                    terraform state list || true
+                    
+                    echo "Directory Contents:"
+                    ls -la
+                '''
+            }
+            echo 'Pipeline failed! Check logs for details'
+        }
         success {
             echo 'Deployment and monitoring setup completed successfully!'
-        }
-        failure {
-            echo 'Pipeline failed! Check logs for details'
         }
     }
 }
