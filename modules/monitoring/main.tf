@@ -9,6 +9,24 @@ resource "kubernetes_namespace" "monitoring" {
   metadata {
     name = var.namespace
   }
+
+  lifecycle {
+    ignore_changes = [
+      metadata[0].labels,
+      metadata[0].annotations,
+    ]
+  }
+}
+
+# Alternative approach using kubernetes_namespace_v1
+resource "kubernetes_namespace_v1" "monitoring" {
+  metadata {
+    name = var.namespace
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # Deploy Prometheus Stack using Helm
